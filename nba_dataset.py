@@ -1,4 +1,4 @@
-from nba_api import games
+from nba_project.nba_api import games
 
 import pandas as pd
 
