@@ -1,8 +1,7 @@
-from nba_project.nba_api import games
-
+from nba_api  import seasonal_games
 import pandas as pd
 
-# Initialize team standings dictionary for all 30 NBA teams
+# Initialize NBA teams list
 nba_teams = [
     'Atlanta Hawks', 'Boston Celtics', 'Brooklyn Nets', 'Charlotte Hornets', 'Chicago Bulls',
     'Cleveland Cavaliers', 'Dallas Mavericks', 'Denver Nuggets', 'Detroit Pistons', 'Golden State Warriors',
@@ -12,35 +11,23 @@ nba_teams = [
     'Sacramento Kings', 'San Antonio Spurs', 'Toronto Raptors', 'Utah Jazz', 'Washington Wizards'
 ]
 
-standings = {team: {
-    'wins': 0,
-    'losses': 0,
-    'scored': 0,
-    'allowed': 0,
-    'home_wins': 0,
-    'home_losses': 0,
-    'away_wins': 0,
-    'away_losses': 0
-} for team in nba_teams}
-
-def update_standings(game):
+def update_standings(standings, game):
     home_team = game['teams']['home']['name']
     away_team = game['teams']['visitors']['name']
+    
     try: 
-        if game['scores']['home']['points'] is None or isinstance(game['scores']['home']['points'], str): 
-            home_score = 0
-        else :        
-            home_score = game['scores']['home']['points']
-    except : 
-        print("something went wrong for {}" .format(game['scores']['home']['points']) )
+        home_score = 0 if (game['scores']['home']['points'] is None or 
+                          isinstance(game['scores']['home']['points'], str)) else game['scores']['home']['points']
+    except Exception as e:
+        print(f"Error with home score: {e}")
+        home_score = 0
 
     try: 
-        if game['scores']['visitors']['points'] is None or isinstance(game['scores']['visitors']['points'], str):     
-            away_score = 0
-        else :        
-            away_score = game['scores']['visitors']['points']
-    except :
-         print("something went wrong for {}" .format(game['scores']['visitors']['points']) )
+        away_score = 0 if (game['scores']['visitors']['points'] is None or 
+                          isinstance(game['scores']['visitors']['points'], str)) else game['scores']['visitors']['points']
+    except Exception as e:
+        print(f"Error with away score: {e}")
+        away_score = 0
 
     # Update points totals
     standings[home_team]['scored'] += home_score
@@ -60,11 +47,11 @@ def update_standings(game):
         standings[home_team]['losses'] += 1
         standings[home_team]['home_losses'] += 1
 
-def get_standings_df():
+def get_standings_df(standings, season):
     records = []
-    for team in standings:
-        stats = standings[team]
+    for team, stats in standings.items():
         records.append({
+            'SEASON': season,
             'Team': team,
             'W': stats['wins'],
             'L': stats['losses'],
@@ -73,24 +60,39 @@ def get_standings_df():
             'DIFF': stats['scored'] - stats['allowed'],
             'PCT': stats['wins'] / (stats['wins'] + stats['losses']) if (stats['wins'] + stats['losses']) > 0 else 0,
             'HOME': f"{stats['home_wins']}-{stats['home_losses']}",
-            'ROAD': f"{stats['away_wins']}-{stats['away_losses']}",
-            'SEASON' : game["season"]
+            'ROAD': f"{stats['away_wins']}-{stats['away_losses']}"
         })
     
     df = pd.DataFrame(records)
     df['PCT'] = df['PCT'].round(3)
     df['RK'] = df['PCT'].rank(ascending=False, method='min').astype(int)
-    df = df.sort_values(['PCT', 'DIFF'], ascending=[False, False] )
+    return df.sort_values(['PCT', 'DIFF'], ascending=[False, False])
+
+# Initialize seasonal_standings dictionary
+seasonal_standings = {}
+
+# Process each season
+for season, games_in_season in seasonal_games.items():
+    # Reset standings for each season
+    current_standings = {team: {
+        'wins': 0, 'losses': 0, 
+        'scored': 0, 'allowed': 0,
+        'home_wins': 0, 'home_losses': 0,
+        'away_wins': 0, 'away_losses': 0
+    } for team in nba_teams}
     
-    return df[['RK', 'Team', 'W', 'L', 'PCT', 'PTS', 'OPP PTS', 'DIFF', 'HOME', 'ROAD', 'SEASON']]
+    for game in games_in_season:
+        if (game['teams']['home']['name'] in nba_teams and 
+            game['teams']['visitors']['name'] in nba_teams):
+            update_standings(current_standings, game)
+    
+    # Store standings for this season
+    seasonal_standings[season] = get_standings_df(current_standings, season)
 
-# Process all games
-for game in games:  # Your games list from data["response"]
-    if game['teams']['home']['name'] not in nba_teams or game['teams']['visitors']['name'] not in nba_teams :
-        continue
-    else :
-        update_standings(game)
+# Combine all seasons
+all_standings = pd.concat(seasonal_standings.values())
 
-# Get final standings
-standings_df = get_standings_df()
-print(standings_df.head(10))  # Show top 10 teams
+# Print standings for each season
+for season, standings_df in seasonal_standings.items():
+    print(f"\n{season} Season Standings:")
+    print(standings_df.head(10))
